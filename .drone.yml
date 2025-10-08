@@ -1,5 +1,6 @@
 kind: pipeline
-type: kubernetes
+#type: kubernetes
+type: docker
 name: mchain-ci
 
 platform:
@@ -163,3 +164,4 @@ name: discord_webhook_token
 get:
   path: mchain-secrets
   name: discord_webhook_token
+
