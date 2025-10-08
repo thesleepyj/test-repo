@@ -1,0 +1,165 @@
+kind: pipeline
+type: kubernetes
+name: mchain-ci
+
+platform:
+  os: linux
+  arch: amd64
+
+trigger:
+  branch:
+    - main
+    - develop
+    - feature/*
+
+steps:
+  - name: build-api
+    image: plugins/docker
+    resources:
+      requests:
+        cpu: 2000
+        memory: 2048MiB
+    environment:
+      DOCKER_REGISTRY:
+        from_secret: docker_registry
+      DOCKER_USERNAME:
+        from_secret: docker_username
+      DOCKER_PASSWORD:
+        from_secret: docker_password
+    settings:
+      registry: ${DOCKER_REGISTRY}
+      repo: ${DOCKER_REGISTRY}/mchain/api
+      context: .
+      dockerfile: Dockerfile.api
+      tags:
+        - latest
+        - ${DRONE_COMMIT_SHA:0:8}
+        - ${DRONE_BRANCH}
+      username: ${DOCKER_USERNAME}
+      password: ${DOCKER_PASSWORD}
+      cache_from: ${DOCKER_REGISTRY}/mchain/api:latest
+    when:
+      event:
+        - push
+        - pull_request
+
+  - name: build-docs
+    image: plugins/docker
+    resources:
+      requests:
+        cpu: 1000
+        memory: 1024MiB
+    environment:
+      DOCKER_REGISTRY:
+        from_secret: docker_registry
+      DOCKER_USERNAME:
+        from_secret: docker_username
+      DOCKER_PASSWORD:
+        from_secret: docker_password
+    settings:
+      registry: ${DOCKER_REGISTRY}
+      repo: ${DOCKER_REGISTRY}/mchain/docs
+      context: .
+      dockerfile: Dockerfile.docs
+      tags:
+        - latest
+        - ${DRONE_COMMIT_SHA:0:8}
+        - ${DRONE_BRANCH}
+      username: ${DOCKER_USERNAME}
+      password: ${DOCKER_PASSWORD}
+      cache_from: ${DOCKER_REGISTRY}/mchain/docs:latest
+    when:
+      event:
+        - push
+        - pull_request
+
+  - name: test-api
+    image: node:20-alpine
+    commands:
+      - cd apps/api
+      - yarn install --frozen-lockfile
+      - yarn prisma:generate
+      - yarn test:ci
+    resources:
+      requests:
+        cpu: 2000
+        memory: 2048MiB
+    when:
+      event:
+        - push
+        - pull_request
+
+  - name: test-contracts
+    image: node:20-alpine
+    commands:
+      - cd packages/contracts
+      - yarn install --frozen-lockfile
+      - yarn test
+    resources:
+      requests:
+        cpu: 1000
+        memory: 1024MiB
+    when:
+      event:
+        - push
+        - pull_request
+
+  - name: notification
+    image: appleboy/drone-discord
+    settings:
+      webhook_id:
+        from_secret: discord_webhook_id
+      webhook_token:
+        from_secret: discord_webhook_token
+      message: >
+        {{#success build.status}}
+          🚀 mChain build {{build.number}} succeeded for {{build.branch}}
+          Commit: {{build.commit}}
+        {{else}}
+          ❌ mChain build {{build.number}} failed for {{build.branch}}
+          Commit: {{build.commit}}
+        {{/success}}
+    when:
+      status:
+        - failure
+        - success
+    depends_on:
+      - build-api
+      - build-docs
+      - test-api
+      - test-contracts
+
+---
+kind: secret
+name: docker_registry
+get:
+  path: mchain-secrets
+  name: docker_registry
+
+---
+kind: secret
+name: docker_username
+get:
+  path: mchain-secrets
+  name: docker_username
+
+---
+kind: secret
+name: docker_password
+get:
+  path: mchain-secrets
+  name: docker_password
+
+---
+kind: secret
+name: discord_webhook_id
+get:
+  path: mchain-secrets
+  name: discord_webhook_id
+
+---
+kind: secret
+name: discord_webhook_token
+get:
+  path: mchain-secrets
+  name: discord_webhook_token
